@@ -9,18 +9,34 @@ v1 (naive, Practice 1 guide session 1):
   where k = number of that colour's stones in the window (k^2 favours
   longer runs -- two separate stones are worth less than a pair).
 
-Two implementations of the same quantity:
+Two implementations of the same quantity are kept:
 - evaluate_board(board)          naive full scan (reference / tests / comparisons)
 - IncrementalEvaluator           maintains the score while stones are made and
                                  unmade, so search leaves cost O(1) (decision D-003:
                                  measure first, then optimise -- this is the single
                                  biggest win for pure-Python search speed)
 
+v3 weighted features (Practice 1 guide session 3 + GA-ready for session 4):
+the evaluator additionally maintains, per colour, the number of live 6-windows
+containing exactly 1 / 2 / 3 / >=4 stones of that colour (buckets F1..F4 and
+F5..F8). The static score used by the search is a WEIGHTED SUM of the buckets
+(FEATURE_WEIGHTS), which subsumes the v1 k^2 heuristic (all-weights-1 on the
+squared counts approximates it) and exposes exactly 4 parameters per colour
+for the evolutionary tuning of Phase 4. The k^2 sums are still maintained
+(legacy_score_black) for version comparisons.
+
 Terminal scores are NOT computed here: the search detects wins via
 is_win_by_premove() and full boards via IncrementalEvaluator.is_full().
 """
 
 from defines import Defines
+
+# Feature weights: index = own stones in a live window, capped at 4.
+# F1..F4 = buckets for black, F5..F8 mirror for white. GA tunes these in v4.
+# Hand-tuned v3.1: concentration amplified after Cloudict threat-train losses
+# (weak F3/F4 let the opponent build forcing columns unopposed -- see
+# experiment rows #18/#19 and decisions-log D-015).
+FEATURE_WEIGHTS = (0.0, 2.0, 8.0, 30.0, 120.0)
 
 # ---------------------------------------------------------------------------
 # Precomputed geometry (built once at import).
@@ -104,9 +120,12 @@ class IncrementalEvaluator:
         n = len(WINDOWS)
         self.m_wb = [0] * n
         self.m_ww = [0] * n
-        self.m_black = 0
+        self.m_black = 0          # legacy: sum of k^2 over live windows
         self.m_white = 0
+        self.m_bfeat = 0.0        # v3: weighted bucket sum over live windows
+        self.m_wfeat = 0.0
         self.m_stones = 0
+        fw = FEATURE_WEIGHTS
         # initial full scan
         for wi, w in enumerate(WINDOWS):
             b = 0
@@ -121,8 +140,10 @@ class IncrementalEvaluator:
             self.m_ww[wi] = wt
             if b and not wt:
                 self.m_black += b * b
+                self.m_bfeat += fw[b if b < 4 else 4]
             elif wt and not b:
                 self.m_white += wt * wt
+                self.m_wfeat += fw[wt if wt < 4 else 4]
         lo, hi = 1, Defines.GRID_NUM - 2
         for x in range(lo, hi + 1):
             row = board[x]
@@ -134,6 +155,7 @@ class IncrementalEvaluator:
 
     def make(self, move, color):
         board = self.m_board
+        fw = FEATURE_WEIGHTS
         for p in move.positions:
             x, y = p.x, p.y
             if board[x][y] != Defines.NOSTONE:
@@ -146,20 +168,25 @@ class IncrementalEvaluator:
                     w = self.m_ww[wi]
                     if w == 0:
                         self.m_black += (b + 1) * (b + 1) - b * b
+                        self.m_bfeat += fw[(b + 1) if b + 1 < 4 else 4] - fw[b if b < 4 else 4]
                     elif b == 0 and w > 0:
                         self.m_white -= w * w                 # black kills white's window
+                        self.m_wfeat -= fw[w if w < 4 else 4]
                     self.m_wb[wi] = b + 1
                 else:
                     b = self.m_wb[wi]
                     w = self.m_ww[wi]
                     if b == 0:
                         self.m_white += (w + 1) * (w + 1) - w * w
+                        self.m_wfeat += fw[(w + 1) if w + 1 < 4 else 4] - fw[w if w < 4 else 4]
                     elif w == 0 and b > 0:
                         self.m_black -= b * b                 # white kills black's window
+                        self.m_bfeat -= fw[b if b < 4 else 4]
                     self.m_ww[wi] = w + 1
 
     def unmake(self, move):
         board = self.m_board
+        fw = FEATURE_WEIGHTS
         for p in move.positions:
             x, y = p.x, p.y
             color = board[x][y]
@@ -172,23 +199,32 @@ class IncrementalEvaluator:
                     w = self.m_ww[wi]
                     if w == 0:
                         self.m_black += (b - 1) * (b - 1) - b * b
+                        self.m_bfeat += fw[(b - 1) if b - 1 < 4 else 4] - fw[b if b < 4 else 4]
                     elif b == 1 and w > 0:
                         self.m_white += w * w                 # black gone -> white's window revives
+                        self.m_wfeat += fw[w if w < 4 else 4]
                     self.m_wb[wi] = b - 1
                 else:
                     b = self.m_wb[wi]
                     w = self.m_ww[wi]
                     if b == 0:
                         self.m_white += (w - 1) * (w - 1) - w * w
+                        self.m_wfeat += fw[(w - 1) if w - 1 < 4 else 4] - fw[w if w < 4 else 4]
                     elif w == 1 and b > 0:
                         self.m_black += b * b                 # white gone -> black's window revives
+                        self.m_bfeat += fw[b if b < 4 else 4]
                     self.m_ww[wi] = w - 1
             board[x][y] = Defines.NOSTONE
 
     # -- queries --------------------------------------------------------------
 
-    def score_black(self):
+    def legacy_score_black(self):
+        """v1/v2 heuristic (sum of k^2) -- kept for version comparisons."""
         return self.m_black - self.m_white
+
+    def score_black(self):
+        """v3 weighted-bucket static score, black perspective."""
+        return self.m_bfeat - self.m_wfeat
 
     def score(self, color):
         """Clamped static score from `color`'s perspective (leaf evaluation)."""

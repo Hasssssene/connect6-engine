@@ -32,6 +32,7 @@ only the already-computed best move of the previous iteration is returned.
 from tools import *
 from defines import Defines
 from evaluation import IncrementalEvaluator
+from threats import LINES, LINES_THROUGH, line_threat_info, threat_scan
 import time
 
 # --- tunables ----------------------------------------------------------------
@@ -48,6 +49,11 @@ _R2_OFFSETS = [(dx, dy) for dx in range(-CAND_RADIUS, CAND_RADIUS + 1)
                for dy in range(-CAND_RADIUS, CAND_RADIUS + 1) if dx or dy]
 
 WIN_SCORE = Defines.MAXINT - 100   # scores at/above this mean "forced win found"
+
+# --- v3 threat-layer tunables -------------------------------------------------
+
+THREAT_WEIGHT = 350.0     # pair-scoring weight per threat (capped at 3)
+ROOT_FIRST_STONES = 8     # w: first stones tried in two-level generation (paper 4.3)
 
 
 class SearchTimeUp(Exception):
@@ -109,11 +115,14 @@ class SearchEngine():
             budget = DEFAULT_TIME_BUDGET
 
         self._eval = IncrementalEvaluator(self.m_board)
-        start = time.perf_counter()
 
-        root_moves = self.generate_candidate_moves(ourColor)
+        # v3 root layer: exact threat analysis -> win-now / forced / anchored /
+        # two-level candidate pairs (Wu & Huang Sec. 4; see threats.py).
+        root_moves, forced = self._root_moves(ourColor, ourColor ^ 3)
         if not root_moves:
             return 0                       # board full: nothing to play
+
+        start = time.perf_counter()
 
         if self.ITERATIVE:
             # Depth 1 always completes (deadline disabled) -> legal answer fast.
@@ -122,7 +131,7 @@ class SearchEngine():
             self.m_reached_depth = 1
             self._deadline = start + budget
             d = 2
-            while d <= MAX_DEPTH and best_score < WIN_SCORE:
+            while (not forced) and d <= MAX_DEPTH and best_score < WIN_SCORE:
                 try:
                     self._order_root(root_moves, best_move)
                     m, s = self._root_pass(d, root_moves, ourColor)
@@ -181,6 +190,136 @@ class SearchEngine():
             if cells == target:
                 moves.insert(0, moves.pop(i))
                 return
+
+    # ------------------------------------------------------------------
+    # v3 root layer: threat-driven move construction (Wu & Huang Sec. 4).
+    # ------------------------------------------------------------------
+
+    def _make_pair(self, c1, c2, score=0.0):
+        mv = StoneMove()
+        mv.positions[0].x, mv.positions[0].y = c1
+        mv.positions[1].x, mv.positions[1].y = c2
+        mv.score = score
+        return mv
+
+    def _root_moves(self, color, opp):
+        """Build the root move list from exact threat analysis.
+
+        Priority (returns (moves, forced)):
+        1. own threat window -> immediate winning pair (forced);
+        2. opponent threats >= 3 -> best-effort double block (forced, lost);
+           opponent threats == 2 -> the two marked squares (forced);
+           opponent threats == 1 -> anchored pairs (mark + free partner);
+        3. two-level generation (paper Sec. 4.3): place first stone,
+           re-rank, pick partners; pairs scored by threat/feature deltas.
+        """
+        board = self.m_board
+        cells = self._candidate_cells(color)         # probe-ranked [(x, y, t)]
+
+        own_line_t = []
+        opp_line_t = []
+        opp_marks = set()
+        T_own = T_opp = 0
+        win_empties = None
+        for li, line in enumerate(LINES):
+            t, _, we = line_threat_info(board, color, line)
+            own_line_t.append(t)
+            T_own += t
+            if we is not None and win_empties is None:
+                win_empties = we
+            t2, mk, _ = line_threat_info(board, opp, line)
+            opp_line_t.append(t2)
+            T_opp += t2
+            opp_marks |= mk
+
+        # 1) own threat window: fill it this turn and win.
+        if win_empties:
+            if len(win_empties) >= 2:
+                return [self._make_pair(win_empties[0], win_empties[1], 1e9)], True
+            e = win_empties[0]
+            partner = next(((c[0], c[1]) for c in cells if (c[0], c[1]) != e), None)
+            if partner is None:
+                partner = self._any_empty_except(e)
+            return [self._make_pair(e, partner, 1e9)], True
+
+        # 2) opponent threats: forced or anchored defence.
+        if T_opp >= 2 and len(opp_marks) >= 2:
+            s = sorted(opp_marks)
+            return [self._make_pair(s[0], s[1], 0.0)], True
+        if T_opp >= 1 and opp_marks:
+            anchor = sorted(opp_marks)[0]
+            partners = [(c[0], c[1]) for c in cells if (c[0], c[1]) != anchor]
+            if not partners:
+                partners = [self._any_empty_except(anchor)]
+            moves = []
+            base_raw = self._eval.raw(color)
+            for p in partners[:ROOT_FIRST_STONES + 4]:
+                mv = self._make_pair(anchor, p)
+                mv.score = self._pair_tactical(mv, color, opp, base_raw,
+                                               own_line_t, opp_line_t, T_own, T_opp)
+                moves.append(mv)
+            moves.sort(key=lambda m: -m.score)
+            return moves, False
+
+        # 3) two-level generation with threat-aware pair scoring.
+        top = cells[:ROOT_FIRST_STONES]
+        if len(top) < 2:
+            return self.generate_candidate_moves(color), False
+        base_raw = self._eval.raw(color)
+        scratch = StoneMove()
+        seen = set()
+        moves = []
+        for i, (x1, y1, s1) in enumerate(top):
+            # place the first stone and RE-RANK cells (paper: synergy)
+            scratch.positions[0].x = scratch.positions[1].x = x1
+            scratch.positions[0].y = scratch.positions[1].y = y1
+            self._eval.make(scratch, color)
+            re_cells = self._candidate_cells(color)
+            self._eval.unmake(scratch)
+            w_i = ROOT_FIRST_STONES - i              # decreasing width
+            for (x2, y2, s2) in re_cells[:w_i]:
+                if (x2, y2) == (x1, y1):
+                    continue
+                key = frozenset(((x1, y1), (x2, y2)))
+                if key in seen:
+                    continue
+                seen.add(key)
+                mv = self._make_pair((x1, y1), (x2, y2))
+                mv.score = self._pair_tactical(mv, color, opp, base_raw,
+                                               own_line_t, opp_line_t, T_own, T_opp)
+                moves.append(mv)
+        moves.sort(key=lambda m: -m.score)
+        return moves, False
+
+    def _pair_tactical(self, mv, color, opp, base_raw,
+                       own_line_t, opp_line_t, T_own, T_opp):
+        """Score a candidate pair: feature delta + threats created/allowed.
+
+        Threats are recomputed only on the (<= 8) lines through the pair's
+        cells; unaffected lines reuse the base per-line counts.
+        """
+        board = self.m_board
+        affected = set()
+        for p in mv.positions:
+            affected.update(LINES_THROUGH.get((p.x, p.y), ()))
+        self._eval.make(mv, color)
+        own_after = T_own - sum(own_line_t[i] for i in affected) \
+            + sum(line_threat_info(board, color, LINES[i])[0] for i in affected)
+        opp_after = T_opp - sum(opp_line_t[i] for i in affected) \
+            + sum(line_threat_info(board, opp, LINES[i])[0] for i in affected)
+        ev = self._eval.raw(color) - base_raw
+        self._eval.unmake(mv)
+        return (ev
+                + THREAT_WEIGHT * min(own_after, 3)
+                - THREAT_WEIGHT * min(opp_after, 3))
+
+    def _any_empty_except(self, cell):
+        board = self.m_board
+        for x in range(1, Defines.GRID_NUM - 1):
+            for y in range(1, Defines.GRID_NUM - 1):
+                if board[x][y] == Defines.NOSTONE and (x, y) != cell:
+                    return (x, y)
+        return cell
 
     # ------------------------------------------------------------------
     # v2: alpha-beta (fail-hard) over 2-stone moves. `depth` counts TURNS.
