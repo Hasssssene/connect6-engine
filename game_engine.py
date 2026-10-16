@@ -33,7 +33,7 @@ class GameEngine:
             "              and the engine will search the move for the next step.\n"
             " new black   - start a new game and set the engine to black player.\n"
             " new white   - start a new game and set it to white.\n"
-            " depth d     - set the alpha beta search depth, default is 6.\n"
+            " depth d     - set the per-turn time limit in seconds (default 6).\n"
             " vcf         - set vcf search.\n"
             " unvcf       - set none vcf search.\n"
             " help        - print this help.\n")
@@ -104,7 +104,8 @@ class GameEngine:
                 d = int(msg[6:])
                 if 0 < d < 10:
                     self.m_alphabeta_depth = d
-                print(f"Set the search depth to {self.m_alphabeta_depth}.\n")
+                # v2: `depth d` is the per-turn TIME LIMIT in seconds (statement 5.10)
+                print(f"Set the time limit per turn to {self.m_alphabeta_depth} seconds.\n")
             elif msg == "help":
                 self.on_help()
         return 0
@@ -121,6 +122,8 @@ class GameEngine:
 
         print(f"AB Time:\t{end - start:.3f}")
         print(f"Node:\t{self.m_search_engine.m_total_nodes}\n")
+        print(f"Pruned:\t{self.m_search_engine.m_pruned_nodes}")
+        print(f"Depth:\t{self.m_search_engine.m_reached_depth}")
         print(f"Score:\t{score:.3f}")
         return True
 
