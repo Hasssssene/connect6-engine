@@ -42,7 +42,17 @@ class GameEngine:
         msg = ""
         self.on_help()
         while True:
-            msg = input().strip()
+            try:
+                msg = input().strip()
+            except EOFError:
+                # v1 fix: exit cleanly when stdin closes (e.g. GUI terminates us).
+                # The pipe may already be broken, so guard the goodbye message too.
+                try:
+                    print("Exiting on EOF.")
+                    flush_output()
+                except OSError:
+                    pass
+                break
             log_to_file(msg)
             if msg == "name":
                 print(f"name {self.m_engine_name}")
