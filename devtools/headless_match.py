@@ -97,7 +97,7 @@ def apply_move(board, move, moves):
     moves.append(move)
 
 
-def play(black_path, white_path, depth, vcf, timeout, max_turns, verbose):
+def play(black_path, white_path, depth, vcf, timeout, max_turns, verbose, start=None):
     engines = {Move.BLACK: GameEngine(), Move.WHITE: GameEngine()}
     print(f'Loading black: {black_path}')
     engines[Move.BLACK].init(black_path, depth, vcf)
@@ -110,6 +110,16 @@ def play(black_path, white_path, depth, vcf, timeout, max_turns, verbose):
     transcript = []
     result = None      # Move.BLACK / Move.WHITE / Move.NONE (draw) / -1 (undecided)
     error = None
+
+    # Pre-set position (battery tests): list of (colour, cmd) replayed first.
+    if start:
+        for color, cmd in start:
+            mv = Move.fromCmd('move ' + cmd, color)
+            if mv is None or not mv.isValidated():
+                raise RuleError(f'invalid start move: {color} {cmd}')
+            apply_move(board, mv, moves)
+            transcript.append(f'{"black" if color == Move.BLACK else "white"} {mv.cmd()}')
+            print(f'start   | {"B" if color == Move.BLACK else "W"} | {mv.cmd()} (preset)')
 
     try:
         while result is None:
@@ -168,11 +178,24 @@ def main():
     ap.add_argument('--max-turns', type=int, default=200, help='safety stop')
     ap.add_argument('--verbose', action='store_true', help='print all engine output lines')
     ap.add_argument('--out', help='write transcript to this file')
+    ap.add_argument('--start', help='preset position: alternating colour/move tokens, '
+                                    'e.g. "black JJ white JKKJ black ILKK"')
     args = ap.parse_args()
+
+    start = None
+    if args.start:
+        tokens = args.start.split()
+        start = []
+        i = 0
+        while i < len(tokens):
+            color = tokens[i]
+            cmd = tokens[i + 1]
+            start.append((Move.BLACK if color == 'black' else Move.WHITE, cmd))
+            i += 2
 
     result, error, moves, times, transcript = play(
         args.black, args.white, args.depth, not args.novcf,
-        args.timeout, args.max_turns, args.verbose)
+        args.timeout, args.max_turns, args.verbose, start=start)
 
     if args.out:
         with open(args.out, 'w', encoding='utf-8') as f:
