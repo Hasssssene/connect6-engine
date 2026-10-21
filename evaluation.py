@@ -32,11 +32,12 @@ is_win_by_premove() and full boards via IncrementalEvaluator.is_full().
 from defines import Defines
 
 # Feature weights: index = own stones in a live window, capped at 4.
-# F1..F4 = buckets for black, F5..F8 mirror for white. GA tunes these in v4.
-# Hand-tuned v3.1: concentration amplified after Cloudict threat-train losses
-# (weak F3/F4 let the opponent build forcing columns unopposed -- see
-# experiment rows #18/#19 and decisions-log D-015).
-FEATURE_WEIGHTS = (0.0, 2.0, 8.0, 30.0, 120.0)
+# F1..F4 = buckets for black, F5..F8 mirror for white.
+# v4: GA-optimised (devtools/ga_tuning.py, run 2026-10-21: 8 generations,
+# population 8, champion from common-seed re-evaluation, fitness 8.91/12
+# vs the v3.1 baseline [2, 8, 30, 120]). Trend: threat-train seeds (3-stone
+# windows) priced higher; >=4 windows lower (redundant with exact threats).
+FEATURE_WEIGHTS = (0.0, 2.21, 7.87, 35.73, 91.74)
 
 # ---------------------------------------------------------------------------
 # Precomputed geometry (built once at import).

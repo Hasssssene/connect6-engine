@@ -120,7 +120,7 @@ def main():
             ev.make(mv, color)
             empties.pop(), empties.pop()
             ref = IncrementalEvaluator(board)
-            if ev.score_black() != ref.score_black() or \
+            if abs(ev.score_black() - ref.score_black()) > 1e-6 or \
                ev.legacy_score_black() != ref.legacy_score_black() or \
                ev.is_full() != ref.is_full():
                 ok &= check(f"trial {trial}: incremental == fresh after make", False)
@@ -128,7 +128,7 @@ def main():
             ev.unmake(mv)
             empties.extend((c1, c2))
             ref = IncrementalEvaluator(board)
-            if ev.score_black() != ref.score_black() or \
+            if abs(ev.score_black() - ref.score_black()) > 1e-6 or \
                ev.legacy_score_black() != ref.legacy_score_black():
                 ok &= check(f"trial {trial}: incremental == fresh after unmake", False)
                 break

@@ -25,6 +25,6 @@ The command list as follows:
                         and the engine will search the move for next step.
         new black   - start a new game and set the engine to Black player.
         new white   - start a new game and set it to White.
-        depth d     - set the alpha beta search depth, default is 6.
+        depth d     - set the per-turn time limit in seconds (default 6).
         help        - print this help.
 

@@ -52,7 +52,9 @@ WIN_SCORE = Defines.MAXINT - 100   # scores at/above this mean "forced win found
 
 # --- v3 threat-layer tunables -------------------------------------------------
 
-THREAT_WEIGHT = 350.0     # pair-scoring weight per threat (capped at 3)
+# v4: root pair-scoring weight per threat (capped at 3) -- GA-optimised
+# together with the feature weights (champion genome gene 'threat').
+THREAT_WEIGHT = 377.0
 ROOT_FIRST_STONES = 8     # w: first stones tried in two-level generation (paper 4.3)
 
 

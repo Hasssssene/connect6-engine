@@ -1,0 +1,5 @@
+# Runtime: the engine is pure Python standard library (no dependencies).
+# Dev/packaging requirements (to build the executable):
+pyinstaller>=6.0
+# Dev-only (experiment figures, not needed for the build):
+# matplotlib>=3.8
