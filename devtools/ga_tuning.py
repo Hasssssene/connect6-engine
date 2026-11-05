@@ -261,12 +261,12 @@ def plot_history(history_path, out_png):
     plt.plot(gens, [h["worst"] for h in hist], "^:", label="worst")
     plt.axhline(4.0, color="gray", lw=1, label="all-draw reference (4 x 1.0)")
     plt.xlabel("generation")
-    plt.ylabel("fitness (4 games per generation vs baseline, max = 10)")
+    plt.ylabel("Fitness (4 games vs baseline, max 10)")
     plt.title("GA evolution of evaluation weights (v4)")
     plt.legend()
     plt.grid(alpha=0.3)
     plt.tight_layout()
-    plt.savefig(out_png, dpi=150)
+    plt.savefig(out_png, dpi=150, bbox_inches="tight")
     print("wrote", out_png)
 
 
