@@ -1,44 +1,46 @@
-CONNECT6 ENGINE -- LAB PC BUILD INSTRUCTIONS (Ubuntu)
-=====================================================
+CONNECT6 ENGINE - REBUILDING THE LINUX EXECUTABLE ON UBUNTU
+===========================================================
 
-You need ~10-15 minutes. Everything is offline except one pip install
-(pyinstaller). No admin rights required.
+The delivery already contains the built Linux executable (file "main" in the
+bundle root, built and smoke-tested on Ubuntu 24.04 LTS). This note is only
+needed if you want to rebuild it from source on a lab PC or any Ubuntu machine.
+
+WHAT YOU NEED
+-------------
+- Python 3 (python3); no admin rights required.
+- Network access once, for a single pip install (pyinstaller).
+- ~5-10 minutes.
 
 STEPS
 -----
-1. Unzip this kit (connect6-build.zip) anywhere, e.g. Desktop.
-2. Open a terminal in the unzipped folder (Connect6-build).
-3. Run:
+1. Unzip connect6-engine-source.zip anywhere and open a terminal in the folder.
+2. Run:
 
-       cd Connect6Engine-master
        bash build.sh
 
-4. At the end the script prints "DONE: OK" and "SMOKE TEST: PASS"
-   if everything worked. It also plays one verification game against
-   cloudict.linux automatically (takes a few minutes at most).
+   The script:
+     - installs pyinstaller (venv preferred, --user fallback),
+     - builds the executable as dist/main (PyInstaller onefile),
+     - runs a protocol smoke test (expects "name TIA.Connect6" and a legal
+       move within a 1 s budget) and prints "SMOKE TEST: PASS",
+     - additionally plays one verification game against the course engine
+       cloudict.linux if the course GUI folder (Connect6GUI-master) is next
+       to the source folder (optional, skipped otherwise).
+3. The full record is written to build_log.txt; the game transcript (if the
+   verification match ran) to verify_match.txt.
 
-BRING BACK (from Connect6Engine-master/)
-----------------------------------------
-   - build_log.txt          (the full build record)
-   - smoke_out.txt          (protocol output)
-   - verify_match.txt       (game transcript, if the match ran)
-   - dist/main              (the Linux executable -- THE DELIVERABLE)
+VERIFYING THE DELIVERED BINARY INSTEAD
+--------------------------------------
+To smoke-test the already-built "main" from the bundle without rebuilding:
 
-WHILE YOU ARE THERE, PLEASE NOTE
--------------------------------
-   - Ubuntu version:   lsb_release -a
-   - Python version:   python3 --version
-   - Is the course GUI installed on the lab PCs? Where?
+    chmod +x main
+    printf 'name\ndepth 1\nblack JJ\nnext\nexit\n' | ./main
+
+Expected: the reply "name TIA.Connect6" followed by a "move ..." line.
 
 IF SOMETHING FAILS
 ------------------
-build_log.txt still contains everything needed to diagnose it --
-just bring it back. Common cases:
-   - "python3 not found": try python3.10/python3.11 explicitly,
-     install location may differ.
-   - pip blocked: report the error lines from the log.
-
-Kit contents:
-   Connect6Engine-master/   engine source + devtools + build.sh + verify.sh
-   Connect6GUI-master/      teacher's GUI (used only for cloudict.linux
-                             and the protocol wrapper -- nothing is modified)
+- "python3 not found": try python3.10 / python3.11 / python3.12 explicitly.
+- pip blocked or venv unavailable: build.sh automatically falls back to
+  `pip3 install --user`; the log shows which path it took.
+- PyInstaller errors: check build_log.txt - it contains the full trace.
